@@ -1,0 +1,1374 @@
+---
+title: "Cute_3 - To Predict Bankruptcy"
+author: "Shambhuraj Barge"
+output: 
+  html_document:
+    toc: true
+    toc_depth : 4
+    toc_float : true
+---
+#PREDICTION OF BANKRUPTCY
+# Setup Environment
+
+*Clear the Environment
+
+```{r}
+rm(list = ls(all = T))
+```
+
+*Load the required libraries
+
+```{r message = FALSE, warning = FALSE, echo = FALSE}
+library(DMwR)
+library(caret)
+library(C50)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(ipred)
+library(dplyr)
+library(ggcorrplot)
+library(car) 
+library(caret) 
+library(e1071)
+library(mice)
+library(randomForest)
+library(plotROC)
+library(ggplot2)
+library(pROC, quietly=TRUE)
+library(ROCR, quietly=TRUE)
+library(mice)
+library(VIM)
+library(grid)
+library(data.table)
+library(MLmetrics)
+```
+
+
+# Reading & Understanding the Data
+*read data
+```{r message=FALSE, warning=FALSE}
+data <- read.csv("F:/insofe/practice/train.csv", header=TRUE,na.strings = c('NA',"?"," ","Null"))
+test <- read.csv("F:/insofe/practice/test.csv", header=TRUE,na.strings = c('NA',"?"," ","Null"))
+#View(data)
+```
+
+
+
+*Understand the data with `str()` and `summary()` functions
+
+```{r}
+#View(data)
+str(data)
+dim(data)
+```
+*observation:-
+col 1=ID
+Attr1	net profit / total assets 
+Attr2	total liabilities / total assets 
+Attr3	working capital / total assets 
+Attr4	current assets / short-term liabilities 
+Attr5	[(cash + short-term securities + receivables - short-term liabilities) / (operating expenses - depreciation)] * 365 
+Attr6	retained earnings / total assets 
+Attr7	EBIT / total assets 
+Attr8	book value of equity / total liabilities 
+Attr9	sales / total assets 
+Attr10	equity / total assets 
+Attr11	(gross profit + extraordinary items + financial expenses) / total assets 
+Attr12	gross profit / short-term liabilities 
+Attr13	(gross profit + depreciation) / sales 
+Attr14	(gross profit + interest) / total assets 
+Attr15	(total liabilities * 365) / (gross profit + depreciation) 
+Attr16	(gross profit + depreciation) / total liabilities 
+Attr17	total assets / total liabilities 
+Attr18	gross profit / total assets 
+Attr19	gross profit / sales 
+Attr20	(inventory * 365) / sales 
+Attr21	sales (n) / sales (n-1) 
+Attr22	profit on operating activities / total assets 
+Attr23	net profit / sales 
+Attr24	gross profit (in 3 years) / total assets 
+Attr25	(equity - share capital) / total assets 
+Attr26	(net profit + depreciation) / total liabilities 
+Attr27	profit on operating activities / financial expenses 
+Attr28	working capital / fixed assets 
+Attr29	logarithm of total assets 
+Attr30	(total liabilities - cash) / sales 
+Attr31	(gross profit + interest) / sales 
+Attr32	(current liabilities * 365) / cost of products sold 
+Attr33	operating expenses / short-term liabilities 
+Attr34	operating expenses / total liabilities 
+Attr35	profit on sales / total assets 
+Attr36	total sales / total assets 
+Attr37	(current assets - inventories) / long-term liabilities 
+Attr38	constant capital / total assets 
+Attr39	profit on sales / sales 
+Attr40	(current assets - inventory - receivables) / short-term liabilities 
+Attr41	total liabilities / ((profit on operating activities + depreciation) * (12/365))
+Attr42	profit on operating activities / sales 
+Attr43	rotation receivables + inventory turnover in days 
+Attr44	(receivables * 365) / sales 
+Attr45	net profit / inventory 
+Attr46	(current assets - inventory) / short-term liabilities 
+Attr47	(inventory * 365) / cost of products sold 
+Attr48	EBITDA (profit on operating activities - depreciation) / total assets 
+Attr49	EBITDA (profit on operating activities - depreciation) / sales 
+Attr50	current assets / total liabilities 
+Attr51	short-term liabilities / total assets 
+Attr52	(short-term liabilities * 365) / cost of products sold) 
+Attr53	equity / fixed assets 
+Attr54	constant capital / fixed assets 
+Attr55	working capital 
+Attr56	(sales - cost of products sold) / sales 
+Attr57	(current assets - inventory - short-term liabilities) / (sales - gross profit - depreciation) 
+Attr58	total costs /total sales 
+Attr59	long-term liabilities / equity 
+Attr60	sales / inventory 
+Attr61	sales / receivables 
+Attr62	(short-term liabilities *365) / sales 
+Attr63	sales / short-term liabilities 
+Attr64	sales / fixed assets
+attr 65 target
+*The dataset has 31284 obs. of  66 variables:
+*Summary
+```{r}
+summary(data)
+```
+
+
+# Data Preprocessing
+* remove rows having missing data more than 35 
+```{r}
+sum(is.na(data))
+new_DF <- data[rowSums(is.na(data)) < 35,]
+dim(new_DF)
+```
+* plot of missing data
+```{r}
+colSums((is.na(data)))
+#plotting
+aggr_plot <- aggr(new_DF, col=c('navyblue','red'), numbers=TRUE, sortVars=TRUE, labels=names(data), cex.axis=.7, gap=3, ylab=c("Histogram of missing data","Pattern"))
+#Attr37 assets has 44 % data missing
+```
+*remove unwanted data
+```{r}
+new_DF$ID=NULL
+```
+
+
+*Check the count of target variable values
+
+```{r}
+attach(data)
+pie <- ggplot(data, aes(x = "", fill = factor(target))) + 
+  geom_bar(width = 1) +
+  theme(axis.line = element_blank(), 
+        plot.title = element_text(hjust=0.5)) + 
+  labs(fill="target", 
+       x=NULL, 
+       y=NULL, 
+       title="Pie Chart of Bankruptcy target", 
+       caption="Source: Target")
+  
+pie + coord_polar(theta = "y", start=0)
+```
+
+
+class is imbalance need to balance
+```{r}
+print(prop.table(table(data$target)))
+table(new_DF$target)
+```
+*imputation of data
+```{r}
+impu_data=centralImputation(data = new_DF)
+#write.csv(x = impu_data,file = "impu.csv",row.names = F)
+```
+
+*check for duplicated data
+```{r}
+table(duplicated(data))
+# it shows not any duplicacy in data
+```
+
+*SMOTING
+to make data balance
+```{r message=FALSE, warning=FALSE}
+library(DMwR)
+attach(impu_data)
+set.seed(012)
+impu_data$target<-as.factor(impu_data$target)#SMOTE required factor
+
+smoted_data = SMOTE(target~.,impu_data,perc.over = 1000,perc.under = 100,k = 5)#both over and under
+smoted_data1 = SMOTE(target~.,impu_data,perc.over = 1200,k = 8)#only over 0
+#write.csv(smoted_data1,file = "smoted.csv",row.names = FALSE)
+
+```
+
+```{r}
+table(smoted_data1$target)
+print(prop.table(table(smoted_data1$target)))
+```
+
+*imputation of test
+```{r}
+test_new<-test
+test_new$ID<-NULL
+test_new_imp<-centralImputation(test)
+```
+
+#feature engineering
+##Debt to Equity ratio
+```{r message=FALSE, warning=FALSE}
+attach(smoted_data1)
+a=Attr2/Attr10
+b=ifelse(a>0.5,1,0)
+smoted_data1$DtoE<-b
+#View(smoted_data)
+attach(test_new_imp)
+c=test_new_imp$Attr2/test_new_imp$Attr10
+d=ifelse(c>0.5,1,0)
+test_new_imp$DtoE<-d
+```
+
+##Altman Z-score
+on smoted data
+```{r}
+a=0.717*smoted_data1$Attr3+0.847*smoted_data1$Attr6+3.107*smoted_data1$Attr7+0.420*smoted_data1$Attr8+0.998*smoted_data1$Attr9
+b=ifelse(a>2.9,0,ifelse(1.23<a & a<2.9,0.5,1))
+smoted_data1$new<-b
+```
+
+on test data
+```{r message=FALSE, warning=FALSE}
+attach(test_new_imp)
+e<-0.717*test_new_imp$Attr3+0.847*test_new_imp$Attr6+3.107*test_new_imp$Attr7+0.420*test_new_imp$Attr8+0.998*test_new_imp$Attr9
+f<-ifelse(e>2.9,0,ifelse(1.23<e & e<2.9,0.5,1))
+test_new_imp$new<-f
+```
+
+
+*spliting data
+```{r}
+set.seed(123)
+train_Rows = createDataPartition(smoted_data1$target,p = 0.7,list = FALSE)
+train_Data = smoted_data1[train_Rows,]
+test_Data = smoted_data1[-train_Rows,]
+#write.csv(x = train_data,file = "train_data",row.names = FALSE)
+```
+
+#Exploratory data analysis
+
+*check correlation of num attributes
+Find out whether any correlation exists between numeric variables?
+```{r}
+#View(train_Data)
+train_data_cor<-train_Data
+train_data_cor$target<-as.numeric(train_data_cor$target)
+
+cor=cor(train_data_cor[,1:65])
+head(cor)
+
+x=train_Data[,1:65]
+#top correlated attributes around 23 having more than 90 % correlation. 
+findCorrelation(cor, cutoff = 0.9, verbose = FALSE, names = T)
+
+ggcorrplot(corr =cor,type = "full",title = "correlation plot of train data" )
+```
+
+
+```{r}
+library(ggplot2)
+theme_set(theme_classic())
+
+# Plot
+g <- ggplot(impu_data, aes(Attr1))
+g + geom_density(aes(fill=factor(target)), alpha=0.8) + 
+    labs(title="Density plot", 
+         caption="net profit / total assests vs target",
+         x=" net profit / total assets ",
+         fill="# target")
+```
+
+
+*EBIT / total assets vs target
+```{r}
+attach(impu_data)
+ggplot(data = impu_data,aes(x=Attr7,y=Attr18,col=target),  palette = c("blue", "red"))+geom_jitter()
+
+```
+
+*(gross profit + extraordinary items + financial expenses) / total assets ~gross profit / total assets ~target
+```{r}
+attach(impu_data)
+ggplot(data = impu_data,aes(x=Attr11,y=Attr18,col=target),  palette = c("blue", "red"))+geom_jitter()
+```
+
+
+*EBIT / total assets ~profit on sales / total assets 
+```{r}
+attach(impu_data)
+ggplot(data = impu_data,aes(x=Attr35,y=Attr7,col=target),  palette = c("blue", "red"))+geom_jitter()
+```
+*(gross profit + interest) / total assets ~	working capital 
+```{r}
+attach(impu_data)
+ggplot(data = impu_data,aes(x=Attr14,y=Attr55,col=target),  palette = c("blue", "red"))+geom_jitter()
+```
+*	working capital ~target
+```{r}
+ggplot(impu_data, aes(Attr55, colour = target)) + 
+  geom_freqpoly()
+
+```
+
+#Buld Base model
+## model-1 GLM model on whole data
+```{r}
+set.seed (456)
+
+#create train control for repeated cross validation and k=5
+train_control = trainControl(method="repeatedcv", number=5, repeats=2)
+
+#train
+model_glm_1 = train(target ~.,data=train_Data, method="glm", family=binomial, trControl=train_control)
+
+model_glm<-glm(target~.,train_Data,family = "binomial")
+predicted.dev = predict (model_glm_1, test_Data, type="raw")
+predict(model_glm,test_Data)
+
+summary(model_glm)
+```
+```{r}
+predict=predict(model_glm_1,test_Data)
+confusionMatrix(test_Data$target, predict)
+#F1 score
+F1_Score(y_pred = predict, y_true = test_Data$target, positive = "0")
+F1_Score(y_pred = predict, y_true = test_Data$target, positive = "1")
+F1_Score(test_Data$target, predict, positive = NULL)
+```
+*STEP_AIC
+```{r}
+null_model = glm(target ~ 1, data = train_Data,family = "binomial")
+complete_model = glm(target ~ ., data = test_Data,family = "binomial")
+
+#use stepAIC to come up with model recommending variables with lower AIC value
+step_model <- step(null_model, scope = list(lower = null_model, upper = complete_model), direction = "forward")
+```
+
+
+```{r}
+#modeling onlowest AIC recommended variables.
+summary(step_model)
+```
+
+```{r}
+set.seed(985)
+training_data_imp=train_Data[,c("Attr35","Attr48","Attr27","Attr5","Attr55","Attr44","Attr41","Attr21","Attr49","Attr46","Attr40","Attr53","Attr33","Attr3","Attr12","Attr58","Attr26","Attr39","Attr23","Attr31","Attr62","Attr43","Attr20","Attr61","Attr52","Attr2","Attr45","Attr32","Attr59","Attr64","Attr38","Attr29","Attr51","Attr22","Attr24","Attr24","Attr19","Attr30","Attr15","Attr14","Attr4","Attr16")]
+
+#model building
+model_glm_2=glm(target ~ Attr35 + Attr48 + Attr1 + Attr27 + Attr5 + 
+    Attr55 + Attr44 + Attr41 + Attr21 + Attr49 + Attr46 + Attr40 + 
+    Attr53 + Attr33 + Attr3 + Attr12 + Attr58 + Attr26 + Attr39 + 
+    Attr23 + Attr31 + Attr62 + Attr43 + Attr20 + Attr61 + Attr52 + 
+    Attr2 + Attr45 + Attr32 + Attr59 + Attr64 + Attr38 + Attr29 + 
+    Attr51 + Attr22 + Attr24 + Attr7 + Attr19 + Attr30 + Attr15 + 
+    Attr14 + Attr4 + Attr16,data = train_Data, family=binomial)
+
+#predicting on test data
+prob_test <- predict(model_glm_2,test_Data, type = "response")
+
+preds_test <- ifelse(prob_test > 0.50, 1, 0)
+preds_test<-as.factor(preds_test)
+#confusion matrix
+confusionMatrix(test_Data$target, preds_test)
+
+
+prob_train <- predict(model_glm_2, type = "response")
+pred <- prediction(prob_train,train_Data$target)
+
+perf <- performance(pred, measure="tpr", x.measure="fpr")
+
+plot(perf, col=rainbow(10), colorize=T, print.cutoffs.at=seq(0,1,0.05))
+
+
+perf_auc <- performance(pred, measure="auc")
+
+
+# Access the auc score from the performance object
+auc <- perf_auc@y.values[[1]]
+
+print(auc)
+
+#F1 score
+F1_Score(y_pred = preds_test, y_true = test_Data$target, positive = "0")
+F1_Score(y_pred = preds_test, y_true = test_Data$target, positive = "1")
+#F1_Score(test_Data$target, predicted.dev1, positive = NULL)
+
+```
+
+```{r}
+set.seed(001)
+model_glm_2=glm(target ~ Attr35 + Attr48 + Attr1 + Attr27 + Attr5 + 
+    Attr55 + Attr44 + Attr41 + Attr21 + Attr49 + Attr46 + Attr40 + 
+    Attr53 + Attr33 + Attr3 + Attr12 + Attr58 + Attr26 + Attr39 + 
+    Attr23 + Attr31 + Attr62 + Attr43 + Attr20 + Attr61 + Attr52 + 
+    Attr2 + Attr45 + Attr32 + Attr59 + Attr64 + Attr38 + Attr29 + 
+    Attr51 + Attr22 + Attr24 + Attr7 + Attr19 + Attr30 + Attr15 + 
+    Attr14 + Attr4 + Attr16,data = train_Data, family=binomial)
+
+cooksd <- cooks.distance(model_glm_2)
+plot(cooksd, 
+     pch="*", 
+     cex=2, 
+     main="Influential Obs by Cooks distance")  
+abline(h = 4*mean(cooksd, na.rm=T), col="red")
+```
+
+*obser-In this plot, what seems to be a dark thick black line is actually all our data points. In the left-top corner we see also 4 outlier, or a bunch of them grouped.
+  
+Let's check how many are there
+```{r}
+
+outliers <- rownames(train_Data[cooksd > 4*mean(cooksd, na.rm=T), ])
+as<-as.numeric(outliers)
+as
+print(outliers)
+dim(training_data_imp)
+train_data=train_Data[-c(12382,25461,30920,24938,20993,16229,15739,20379,7574,26809,16387,  14919,24875,15044,21005,17559,3015,23535,1786,19611,5986,5945,18452,6261,6918,30337,4244,   30288,16632,25370,5849,25995,206,12430,26563,2704,25946,23402,14127,9971,30901,19048,1792,
+29898,9642,21891,24063,15040,30003,18398  ,27253,  12799,  12844,  16299,  30977, 18148,  30543,2495,28541,1099.0 ,14157   , 9876 , 23153,   1541,   4656,6769,   9437,  10421,  18810,  21503,  25824,  25877,  28692,  29006,29481, 108100,805,  80710,    808,  80910,  81110,812,81310,81410,  81510,    816,   1045, 104610, 104710, 104810, 104910, 105010, 105110, 105310, 105410,   1055, 105610,  21239,  22491,   2251, 283610,28391,  28425,  28434, 30741,  30763,   3082,  30842,  33241,  39861,39891,  39901,   3993, 3994,   4058,  40601,   4061,  40631,  40641,40651,   4067,  54611,   5464,   5466,  54721,  58231,  58241,   5826, 58271,  58301,  58321,  68051,  71941,  74071,  74101,7412,  92451,96491,  96531, 106951, 107001, 107011,  10702,  10704, 113841, 119801,119821, 119841,  11985,  11988, 124001,  12402 ,124051,  12407, 125051,125071, 125101, 125131, 125161, 127951, 128011, 128041, 133011, 14500,14908, 149091,  14913,  14937, 151401,  15141,  15142,  16669, 166701,166721,  16675,  16676, 166781, 166941,  16699, 16780, 168861, 168871,168891, 168901, 168921, 168941,  16895,  16896, 171611, 17162,  17164,17167,  17168, 171691,  17170),]   
+ 
+```
+
+Since this is a very low number of observations compared to our total I decided not to remove them. This just seems to be variability in the measurement rather than experimental error.
+
+
+
+#building Decision Tree
+```{r}
+
+DT_C50_rules <- C5.0(target~., 
+                     data=train_Data, 
+                     rules=TRUE
+                     )
+
+summary(DT_C50_rules)
+
+```
+
+*Plot C50 model (tree)
+
+```{r}
+
+DT_C50 <- C5.0(target~., 
+               data=train_Data
+               )
+
+plot(DT_C50)
+
+```
+
+
+*Check variable importance
+
+```{r}
+
+C5imp(DT_C50_rules, pct=TRUE)
+a<-data.frame(C5imp(DT_C50_rules, pct=TRUE))
+attributes<-c(rownames(a))
+attributes
+importance<-c(a[,1])
+importance
+imp_var<-cbind(attributes,importance)
+imp_var<-data.frame(imp_var)
+attach(imp_var)
+
+
+ggplot(data = imp_var,aes(x=attributes ,y =importance ))+geom_histogram(stat = "identity",fill="blue")+coord_flip()
+
+```
+
+*Predict and evaluate C50 on test data
+
+```{r}
+
+pred_val = predict(DT_C50_rules, newdata=test_Data, type="class")
+#pred_va2 = predict(DT_C50_rules, newdata=test_new_imp, type="class")
+#submission$prediction<-pred_va2
+#write.csv(submission,file = "c50.csv",row.names = FALSE)
+```
+
+*Evaluate C50 on test data
+
+```{r}
+
+confusionMatrix(test_Data$target, pred_val)
+
+```
+
+# RPART Model decision tree
+```{r}
+
+library(DMwR)
+library(caret)
+library(C50)
+library(rpart)
+library(rpart.plot)
+library(rattle)
+library(ipred)
+library(randomForest)
+DT_rpart <- rpart(target~., data=train_Data, method="class")
+```
+
+*RPART as rules
+
+```{r message=FALSE}
+
+asRules(DT_rpart)
+
+```
+
+*Plot RPART model
+
+```{r}
+
+rpart.plot(DT_rpart)
+
+```
+
+*Check variable importance
+
+```{r}
+
+DT_rpart$variable.importance 
+
+```
+
+*Predict RPART on test data
+
+```{r}
+
+pred_val <- predict(DT_rpart, 
+                    newdata=test_Data, 
+                    type="class"
+                    )
+
+```
+
+*Evaluate RPART on test data
+
+```{r}
+
+confusionMatrix(test_Data$target, pred_val)
+
+```
+
+## Cost Parameter Tuning
+Use cp to train RPART
+```{r}
+set.seed(151)
+DT_rpart_Reg <- rpart(target~., 
+                      data=train_Data, 
+                      method="class", 
+                      control = rpart.control(cp = 0.0001)
+                      )
+
+printcp(DT_rpart_Reg)
+
+```
+
+*Cost Parameter Plot
+
+```{r}
+
+plotcp(DT_rpart_Reg)
+
+```
+
+*Choose the CP value for which we have minimum xerror value
+
+```{r}
+
+CP_min <- DT_rpart_Reg$cptable[which.min(DT_rpart_Reg$cptable[,"xerror"]), "CP" ]
+CP_min
+
+```
+
+*Train RPART with optimal cp value
+
+```{r}
+set.seed(002)
+
+DT_rpart_Reg <- rpart(target~., 
+                      data=train_Data,method="class", 
+                      control = rpart.control(cp = CP_min)
+                      )
+
+DT_rpart_Reg
+
+```
+
+*Predict optimised RPART on test data
+
+```{r}
+
+predCartval <- predict(DT_rpart_Reg, 
+                       newdata=test_Data, 
+                       type="class"
+                       )
+#prediction on test final data
+predCartval1 <- predict(DT_rpart_Reg, 
+                       newdata=test_new_imp, 
+                       type="class"
+                       )
+#submission$prediction<-predCartval1
+#write.csv(submission,file = "sham_rpart2.csv",row.names = FALSE)
+```
+
+*Evaluate optimised RPART on test data
+
+```{r}
+
+confusionMatrix(predCartval,test_Data$target)
+
+```
+
+*F1 score
+```{r}
+#calculate F1 score
+cm = as.matrix(table(Actual = test_Data$target, Predicted =predCartval ))
+n=sum(cm)
+dia=diag(cm)
+accuracy = sum(diag(cm)) / sum(cm) 
+rowsums = apply(cm, 1, sum) # number of instances per class
+colsums = apply(cm, 2, sum) # number of predictions per class
+p = rowsums / n # distribution of instances over the actual classes
+q = colsums / n # distribution of instances over the predicted classes
+precision = dia / colsums 
+recall = dia / rowsums 
+f1 = 2 * precision * recall / (precision + recall) 
+data.frame(precision, recall, f1) 
+```
+
+# Bagged Trees
+
+```{r}
+
+DT_bag <- bagging(target ~ . , 
+                  data = train_Data, 
+                  control = rpart.control(CP_min)
+                  )
+
+```
+
+*Predict Bagging on test data
+
+```{r}
+
+preds_tree_bag <- predict(DT_bag, test_Data)
+
+```
+
+*Evaluate Bagging on test data
+
+```{r}
+
+confusionMatrix(preds_tree_bag, test_Data$target)
+
+
+```
+
+
+```{r message=FALSE, warning=FALSE}
+#create a task
+library(mlr)
+traintask <- makeClassifTask(data = train_Data,target = "target")
+testtask <- makeClassifTask(data = test_Data,target = "target")
+```
+
+```{r}
+#create learner
+bag <- makeLearner("classif.rpart",predict.type = "response")
+bag.lrn <- makeBaggingWrapper(learner = bag,bw.iters = 100,bw.replace = TRUE)
+```
+*I've set up the bagging algorithm which will grow 100 trees on randomized samples of data with replacement. To check the performance, let's set up a validation strategy too:
+Train the Random Forest model
+```{r}
+#set 5 fold cross validation
+rdesc <- makeResampleDesc("CV",iters=10L)
+```
+*For faster computation, we'll use parallel computation backend. Make sure your machine / laptop doesn't have many programs running at backend.
+
+```{r message=FALSE, warning=FALSE}
+#set parallel backend (Windows)
+library(parallelMap)
+library(parallel)
+parallelStartSocket(cpus = detectCores())
+```
+
+
+
+```{r}
+r <- resample(learner = bag.lrn
+              ,task = traintask
+              ,resampling = rdesc
+              ,measures = list(tpr,fpr,fnr,fpr,acc)
+              ,show.info = T)
+r$measures.test
+```
+*pr.test.mean=0.9112016
+*fpr.test.mean=0.5236005
+*fnr.test.mean=0.0887984
+*fpr.test.mean=0.5236005
+*acc.test.mean=0.7951732
+
+```{r}
+r <- resample(learner = bag.lrn
+              ,task = testtask
+              ,resampling = rdesc
+              ,measures = list(tpr,fpr,fnr,tnr,acc)
+              ,show.info = T)
+r$pred
+```
+
+```{r}
+#make randomForest learner
+rf.lrn <- makeLearner("classif.randomForest")
+rf.lrn$par.vals <- list(ntree = 500L,
+                          importance=TRUE)
+
+r <- resample(learner = rf.lrn
+                ,task = traintask
+                ,resampling = rdesc
+                ,measures = list(tpr,fpr,fnr,tnr,acc)
+                ,show.info = T)
+```
+
+```{r}
+r$measures.test
+
+```
+
+```{r}
+#set cutoff
+rf.lrn$par.vals <- list(ntree = 100L,
+                          importance=TRUE,
+                          cutoff = c(0.75,0.25))
+
+r <- resample(learner = rf.lrn
+               ,task = traintask
+               ,resampling = rdesc
+               ,measures = list(tpr,fpr,fnr,tnr,acc)
+               ,show.info = T)
+```
+
+```{r}
+r$measures.test
+```
+
+```{r}
+getParamSet(rf.lrn)
+
+#set parameter space
+params <- makeParamSet(
+makeIntegerParam("mtry",lower = 1,upper = 10),
+makeIntegerParam("nodesize",lower = 5,upper = 50)
+)
+
+#set validation strategy
+rdesc <- makeResampleDesc("CV",iters=5L)
+
+#set optimization technique
+ctrl <- makeTuneControlRandom(maxit = 5L)
+
+#start tuning
+tune <- tuneParams(learner = rf.lrn
+                    ,task = traintask
+                    ,resampling = rdesc
+                    ,measures = list(acc)
+                    ,par.set = params
+                    ,control = ctrl
+                    ,show.info = T)
+
+```
+
+
+#Random forest 
+```{r}
+set.seed(123)
+
+DT_RF = randomForest(target ~ ., 
+                     data=train_data, 
+                     keep.forest=TRUE,
+                     ntree=500
+                     ) 
+DT_RF
+```
+
+
+*Important attributes
+
+```{r}
+
+DT_RF$importance
+
+```
+
+*Extract and store important variables obtained from the random forest model
+
+```{r}
+
+rf_Imp_Attr = data.frame(DT_RF$importance)
+
+rf_Imp_Attr = data.frame(Attributes = row.names(rf_Imp_Attr), Importance = rf_Imp_Attr[,1])
+
+rf_Imp_Attr = rf_Imp_Attr[order(rf_Imp_Attr$Importance, decreasing = TRUE),]
+
+rf_Imp_Attr
+
+```
+
+*Variable Importance Plot
+
+```{r}
+
+varImpPlot(DT_RF)
+
+```
+
+```{r}
+plot(DT_RF)
+```
+
+*Predict Random Forest on Test Data
+
+```{r}
+set.seed(4156)
+# Predicton Test Data
+pred_Test = predict(DT_RF, test_Data[,setdiff(names(test_Data),
+                                              "target")],
+                    type="response", 
+                    norm.votes=TRUE)
+```
+
+*Evaluate Random Forest on Test Data
+
+```{r}
+confusionMatrix(pred_Test, test_Data$target)
+
+```
+
+
+*prediction on test
+```{r}
+set.seed(456)
+# Predicton Test Data
+pred_Test_imp = predict(DT_RF, test_Data[,setdiff(names(test_Data),
+                                              "target")],
+                    type="response", 
+                    norm.votes=TRUE)
+
+#View(pred_Test_imp)
+#submission$prediction<-pred_Test_imp
+#write.csv(submission,file = "sham_rf2.csv",row.names = FALSE)
+
+```
+
+*check F1 score
+```{r}
+#calculate F1 score
+cm = as.matrix(table(Actual = test_Data$target, Predicted =pred_Test ))
+n=sum(cm)
+dia=diag(cm)
+accuracy = sum(diag(cm)) / sum(cm) 
+rowsums = apply(cm, 1, sum) # number of instances per class
+colsums = apply(cm, 2, sum) # number of predictions per class
+p = rowsums / n # distribution of instances over the actual classes
+q = colsums / n # distribution of instances over the predicted classes
+precision = dia / colsums 
+recall = dia / rowsums 
+f1 = 2 * precision * recall / (precision + recall) 
+data.frame(precision, recall, f1)
+```
+
+*to check no of tress contributes in  error.
+```{r}
+plot(DT_RF)
+DT_RF$confusion
+```
+*observation- after 230 tress model gives cont error hence take tress=230 in further calculations.
+
+
+
+## Build random forest using top 19 important attributes
+
+```{r}
+
+top_Imp_Attr = as.character(rf_Imp_Attr$Attributes[1:19])
+
+# Build the classification model using randomForest
+DT_RF_Imp = randomForest(target~.,
+                         data=train_Data[,c(top_Imp_Attr,"target")], 
+                         keep.forest=TRUE,
+                         ntree=150, set.seed(123)
+                         ) 
+```
+
+Predict Random Forest on Test Data
+
+```{r}
+# Predicton Test Data
+pred_RF_Imp = predict(DT_RF_Imp, 
+                    test_Data[,setdiff(names(test_Data), "target")],
+                    type="response", 
+                    norm.votes=TRUE)
+
+```
+
+Evaluate Random Forest on Test Data
+
+```{r}
+
+confusionMatrix(pred_RF_Imp, test_Data$target)
+
+```
+*F1 score
+```{r}
+
+#calculate F1 score
+cm = as.matrix(table(Actual = test_Data$target, Predicted =pred_RF_Imp ))
+n=sum(cm)
+dia=diag(cm)
+accuracy = sum(diag(cm)) / sum(cm) 
+rowsums = apply(cm, 1, sum) # number of instances per class
+colsums = apply(cm, 2, sum) # number of predictions per class
+p = rowsums / n # distribution of instances over the actual classes
+q = colsums / n # distribution of instances over the predicted classes
+precision = dia / colsums 
+recall = dia / rowsums 
+f1 = 2 * precision * recall / (precision + recall) 
+data.frame(precision, recall, f1) 
+#F1 score
+#F1_Score(y_pred = predicted.dev1, y_true = test_Data$target, positive = "0")
+#F1_Score(y_pred = predicted.dev1, y_true = test_Data$target, positive = "1")
+#F1_Score(test_Data$target, predicted.dev1, positive = NULL)
+```
+
+
+*Evaluate Random Forest new on Test Data
+
+```{r}
+
+confusionMatrix(pred_RF_Imp, test_Data$Churn)
+
+```
+
+##RF tuning
+*Algorithmic tuning
+```{r}
+set.seed(456)
+
+DT_RF_tune <- tuneRF(x = train_Data[,c(top_Imp_Attr,"target")], 
+               y = train_Data$target , 
+               ntreeTry =150,
+               stepFactor = 1.2,
+               improve = 0.001
+               
+               )
+
+```
+
+View the iterations of tuneRF
+*min features to reduce oob.
+```{r}
+
+DT_RF_tune
+
+best_m <- DT_RF_tune[DT_RF_tune[, 2] == min(DT_RF_tune[, 2]), 1]
+```
+observation-here we got 4. means 
+*Build Model with best m again 
+
+```{r}
+
+RF_tune <- randomForest(target~., 
+                   data=train_Data, 
+                   mtry=best_m, 
+                   importance=TRUE,
+                   ntree=150, 
+                   set.seed(123)
+                   )
+```
+
+
+Predict Random Forest on Test Data
+
+```{r}
+
+pred_RF_Tune = predict(RF_tune, 
+                    test_Data[,setdiff(names(test_Data), "target")],
+                    type="response", 
+                    norm.votes=TRUE)
+
+
+```
+
+
+predict on test data
+```{r}
+a=smoted_data1
+a$Attr37<-NULL
+pred_RF_Tune = predict(RF_tune, 
+                    test_Data[,setdiff(names(test_Data), "target")],
+                    type="response", 
+                    norm.votes=TRUE)
+
+
+#submission$prediction<-pred_Test_imp
+#write.csv(submission,file = "sham_rf.csv",row.names = FALSE)
+
+```
+
+
+
+
+
+Evaluate Random Forest on Test Data
+
+```{r}
+
+confusionMatrix(pred_RF_Tune, test_Data$target )
+
+```
+
+```{r}
+#calculate F1 score
+cm = as.matrix(table(Actual = test_Data$target, Predicted =pred_RF_Tune ))
+n=sum(cm)
+dia=diag(cm)
+accuracy = sum(diag(cm)) / sum(cm) 
+rowsums = apply(cm, 1, sum) # number of instances per class
+colsums = apply(cm, 2, sum) # number of predictions per class
+p = rowsums / n # distribution of instances over the actual classes
+q = colsums / n # distribution of instances over the predicted classes
+precision = dia / colsums 
+recall = dia / rowsums 
+f1 = 2 * precision * recall / (precision + recall) 
+data.frame(precision, recall, f1) 
+```
+
+
+#boosting
+```{r}
+#using one hot encoding 
+library(mlr)
+library(data.table)
+library(xgboost)
+
+#separates target for labeling
+target_train <- train_Data$target 
+target_test<- test_Data$target
+
+#assign train and test data
+tr_data=train_Data
+ts_data=test_Data
+tr_data$target<-NULL
+ts_data$target<-NULL
+#here we dummies od data and matrix because boosting required input data in matrix format 
+new_tr <- model.matrix(~.+0,data =tr_data)  
+new_ts <- model.matrix(~.+0,data = ts_data)
+#convert factor to numeric 
+labels <- as.numeric(target_train)-1 #lables required for boosting -this for train
+ts_label <- as.numeric(target_test)-1#for test
+
+#preparing matrix 
+dtrain <- xgb.DMatrix(data = new_tr,label = labels) 
+dtest <- xgb.DMatrix(data = new_ts,label=ts_label)
+
+#default parameters
+params <- list(booster = "gbtree", objective = "binary:logistic", eta=0.3, gamma=0, max_depth=6, min_child_weight=1, subsample=1, colsample_bytree=1)
+
+
+```
+*Using the inbuilt xgb.cv function, let's calculate the best nround for this model. In addition, this function also returns CV error, which is an estimate of test error.
+```{r}
+xgbcv <- xgb.cv( params = params, data = dtrain, nrounds = 100, nfold = 5, showsd = T, stratified = T, print_every_n = 10, early_stopping_rounds = 20, maximize = F)
+
+```
+*mean errors
+```{r}
+xgbcv$evaluation_log
+min(xgbcv$evaluation_log[,4])
+```
+
+
+
+observation-least error at iteration-100 train-error:0.168031+0.002874	test-error:0.205640+0.011306
+build again the model on nrounds-100 keep all parameters as default.
+```{r}
+#first default - model training
+xgb1 <- xgb.train (params = params, data = dtrain, nrounds = 100, watchlist = list(val=dtest,train=dtrain), print.every.n = 10, early.stop.round = 100, maximize = F , eval_metric = "error",set.seed(123))
+#model prediction
+xgbpred <- predict (xgb1,dtest)
+xgbpred1 <- ifelse (xgbpred > 0.50,1,0)
+
+#model prediction on test
+new_test <- model.matrix(~.+0,data = test_Data)
+target_test<- test_Data$target
+ts_label <- as.numeric(target_test)-1
+xgbpred1 <- predict (xgb1,new_ts,label=ts_label)
+xgbpred1 <- ifelse (xgbpred > 0.50,1,0) 
+
+
+```
+
+*confusion matrix
+```{r}
+#confusion matrix
+confusionMatrix (as.factor(xgbpred1),as.factor(ts_label))
+
+#view variable importance plot
+mat <- xgb.importance (feature_names = colnames(new_tr),model = xgb1)
+
+xgb.plot.importance (importance_matrix = mat) 
+# Get the feature real name
+mat$Feature
+#for checking imp feature
+test <- chisq.test(train_Data$Attr24, train_Data$target)
+print(test)
+```
+*As you can see, we've achieved better accuracy than a random forest model using default parameters in xgboost. Can we still improve it? Let's proceed to the random / grid search procedure and attempt to find better accuracy.
+
+*check F1 score
+```{r}
+#calculate F1 score
+cm = as.matrix(table(Actual = test_Data$target, Predicted =as.factor(xgbpred1) ))
+n=sum(cm)
+dia=diag(cm)
+accuracy = sum(diag(cm)) / sum(cm) 
+rowsums = apply(cm, 1, sum) # number of instances per class
+colsums = apply(cm, 2, sum) # number of predictions per class
+p = rowsums / n # distribution of instances over the actual classes
+q = colsums / n # distribution of instances over the predicted classes
+precision = dia / colsums 
+recall = dia / rowsums 
+f1 = 2 * precision * recall / (precision + recall) 
+data.frame(precision, recall, f1)
+```
+
+*tuning hyperparameter
+```{r}
+#create tasks
+traintask <- makeClassifTask (data = train_Data,target = "target")
+testtask <- makeClassifTask (data = test_Data,target = "target")
+
+#do one hot encoding` 
+traintask <- createDummyFeatures (obj = traintask) 
+testtask <- createDummyFeatures (obj = testtask)
+```
+
+```{r message=FALSE, warning=FALSE}
+#create learner
+lrn <- makeLearner("classif.xgboost",predict.type = "response")
+lrn$par.vals <- list( objective="binary:logistic", eval_metric="error", nrounds=100L, eta=0.1)
+
+#set parameter space
+params <- makeParamSet( makeDiscreteParam("booster",values = c("gbtree","gblinear")), makeIntegerParam("max_depth",lower = 3L,upper = 10L), makeNumericParam("min_child_weight",lower = 1L,upper = 10L), makeNumericParam("subsample",lower = 0.5,upper = 1), makeNumericParam("colsample_bytree",lower = 0.5,upper = 1))
+
+#set resampling strategy
+rdesc <- makeResampleDesc("CV",stratify = T,iters=5L)
+```
+
+
+
+```{r}
+#search strategy
+ctrl <- makeTuneControlRandom(maxit = 10L)
+```
+
+```{r}
+#set parallel backend
+library(parallel)
+library(parallelMap) 
+parallelStartSocket(cpus = detectCores())
+
+set.seed(141)
+#parameter tuning
+mytune <- tuneParams(learner = lrn, task = traintask, resampling = rdesc, measures = acc, par.set = params, control = ctrl, show.info = T)
+mytune$y
+mytune$x
+```
+
+```{r}
+set.seed(564)
+#set hyperparameters
+lrn_tune <- setHyperPars(lrn,par.vals = mytune$x)
+lrn_tune<-setHyperPars2(lrn,par.vals = mytune$x)
+lrn_tune
+#train model
+#xgmodel <- train(learner = lrn_tune,task = traintask)
+#predict model
+#xgpred <- predict(xgmodel,testtask)
+```
+
+
+
+
+```{r}
+set.seed(666)
+#Hyperparameters: oobjective=binary:logistic,eval_metric=error,nrounds=100,eta=0.1,booster=gbtree,max_depth=10,min_child_weight=1.32,subsample=0.531,colsample_bytree=0.577
+set.seed(789)
+params_new <- list(booster ="gbtree", objective = "binary:logistic", eta=0.1, gamma=0, max_depth=10, min_child_weight=1.32, subsample=0.531, colsample_bytree=0.577)
+
+#again model build
+xgbcv <- xgb.cv( params = params_new, data = dtrain, nrounds = 100, nfold = 5, showsd = T, stratified = T, print_every_n = 10, early_stopping_rounds = 20, maximize = F)
+
+xgbcv$best_iteration
+```
+
+```{r}
+#first default - model training
+xgb1 <- xgb.train (params = params_new, data = dtrain, nrounds = 100, watchlist = list(val=dtest,train=dtrain), print.every.n = 20, early.stop.round = 100, maximize = F , eval_metric = "error",set.seed(123))
+#model prediction
+xgbpred <- predict (xgb1,dtest)
+xgbpred <- ifelse (xgbpred > 0.50,1,0)
+
+```
+
+
+```{r}
+#confusion matrix
+confusionMatrix (as.factor(xgbpred),as.factor(ts_label))
+
+
+#view variable importance plot
+mat <- xgb.importance (feature_names = colnames(new_tr),model = xgb1)
+xgb.plot.importance (importance_matrix = mat) 
+```
+
+*check F1 score
+```{r}
+#calculate F1 score
+cm = as.matrix(table(Actual = test_Data$target, Predicted =as.factor(xgbpred) ))
+n=sum(cm)
+dia=diag(cm)
+accuracy = sum(diag(cm)) / sum(cm) 
+rowsums = apply(cm, 1, sum) # number of instances per class
+colsums = apply(cm, 2, sum) # number of predictions per class
+p = rowsums / n # distribution of instances over the actual classes
+q = colsums / n # distribution of instances over the predicted classes
+precision = dia / colsums 
+recall = dia / rowsums 
+f1 = 2 * precision * recall / (precision + recall) 
+data.frame(precision, recall, f1)
+```
+
+
+
+
+
+
+
+#knn
+```{r}
+
+library(class)   #knn
+#data with out target
+data_train_without_target = subset(train_Data,select=-c(target))
+data_test_without_target = subset(test_Data,select=-c(target))
+
+#
+Neigh <-3
+pred= knn(data_train_without_target, data_test_without_target, train_Data$target, k = Neigh)
+#confusion matrix
+confusionMatrix(pred,test_Data$target)
+#F1 score
+F1_Score(y_pred = pred, y_true = test_Data$target, positive = "0")
+F1_Score(y_pred = pred, y_true = test_Data$target, positive = "1")
+
+
+```
+
+
+```{r}
+# NORMALIZE train data using 'Range' method
+prePro <- preProcess(train_Data, method=c("range"))
+data_train1 <- predict(prePro, train_Data)
+# NORMALIZE test data using 'Range' method
+data_test <- predict(prePro, test_Data)
+  
+#data with out target
+data_train_without_target = subset(data_train1,select=-c(target))
+data_test_without_target = subset(data_test,select=-c(target))
+  
+#modeling
+Neigh <-3
+pred= knn(data_train_without_target, data_test_without_target, data_train1$target, k = Neigh)
+#confusion matrix
+confusionMatrix(pred,data_test$target)
+#F1 score
+F1_Score(y_pred = pred, y_true = data_test$target, positive = "0")
+F1_Score(y_pred = pred, y_true = data_test$target, positive = "1")
+
+```
+
+```{r}
+# Selecting the value of K ,hyper-parameter tuning
+set.seed(123)
+ctrl <- trainControl(method="repeatedcv",repeats = 3)
+knnFit <- train(target ~., data = data_train[,1:64], 
+                  method = "knn", trControl = ctrl,
+                  preProcess = c("center","scale"))
+knnFit
+library(MASS)
+TrainData <- data_train1[,1:64]
+TrainClasses <- data_train1[,65]
+knnFit2 <- train(TrainData, TrainClasses,
+                 method = "knn",
+                 preProcess = c("center", "scale"),
+                 tuneLength = 10,
+                 trControl = trainControl(method = "boot"))
+dim(data_train1)
+
+```
+
+*knn on top imp attr of RF
+```{r}
+top_Imp_Attr = as.character(rf_Imp_Attr$Attributes[1:19])
+# NORMALIZE train data using 'Range' method
+prePro <- preProcess(train_Data[,c(top_Imp_Attr)], method=c("range"))
+data_train <- predict(prePro, train_Data[,c(top_Imp_Attr,"target")])
+# NORMALIZE test data using 'Range' method
+data_test <- predict(prePro, test_Data[,c(top_Imp_Attr,"target")])
+  
+#data with out target
+data_train_without_target = train_Data[,c(top_Imp_Attr)]
+data_test_without_target = test_Data[,c(top_Imp_Attr)]
+  
+#modeling
+Neigh <-3
+pred= knn(data_train_without_target, data_test_without_target, data_train$target, k = Neigh)
+#confusion matrix
+confusionMatrix(pred,data_test$target)
+#F1 score
+F1_Score(y_pred = pred, y_true = data_test$target, positive = "0")
+F1_Score(y_pred = pred, y_true = data_test$target, positive = "1")
+
+```
+
+
+```{r}
+Neigh <-3
+  pred=knn(bankdata_trainwithoutclass, bankdata_testwithoutclass, bankdata_train$Personal.Loan, k = Neigh)
+  a=table(pred,bankdata_test$Personal.Loan)
+  accu= sum(diag(a))/sum(a)
+  accu
+```
+
+
+
+
+
+
+
+
